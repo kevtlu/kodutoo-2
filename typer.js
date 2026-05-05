@@ -22,8 +22,8 @@ const db = getDatabase(app);
 class Typer {
     constructor() {
         this.name = "";
-        this.wordsInGame = 1;
-        this.startingWordLength = 2;
+        this.wordsInGame = 5;
+        this.startingWordLength = 4;
         this.startTime = 0;
         this.endTime = 0;
         this.word = "Suvaline";
@@ -32,9 +32,35 @@ class Typer {
         this.wordsTyped = 0;
         this.score = 0;
 
+        const infoBox = document.getElementById("info");
+        infoBox.innerHTML = `
+            <div id="progressContainer"><div id="progressBar"></div></div>
+            <div id="wordcount"></div>
+            <div id="liveWpm">WPM: 0</div>
+        `;
+
+        this.audioStart = new Audio("start.mp3");
+        this.audioType = new Audio("type.mp3");
+        this.audioEnd = new Audio("end.mp3");
+        this.audioScore = new Audio("score.mp3");
+
+        this.startMenuClock();
         this.initFirebase();
         this.bindButtons();
+        this.bindModal();
         this.loadFromFile();
+    }
+
+    startMenuClock() {
+        const welcomeMsg = document.getElementById("welcomeMsg");
+        const clockDiv = document.createElement("div");
+        clockDiv.id = "menuClock";
+        welcomeMsg.parentNode.insertBefore(clockDiv, welcomeMsg);
+
+        setInterval(() => {
+            const now = new Date();
+            clockDiv.innerText = now.toLocaleTimeString('et-EE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }, 1000);
     }
 
     initFirebase() {
@@ -47,27 +73,45 @@ class Typer {
             } else {
                 document.getElementById("authContainer").style.display = "flex";
                 document.getElementById("gameMenu").style.display = "none";
-                this.name = "";
             }
         });
 
         const scoresRef = query(ref(db, 'scores'), orderByChild('time'), limitToFirst(20));
         onValue(scoresRef, (snapshot) => {
-            const resultDiv = document.getElementById("results");
-            resultDiv.innerHTML = "";
+            const container = document.getElementById("resultsContainer");
             
-            let resultsArray = [];
-            snapshot.forEach((childSnapshot) => {
-                resultsArray.push(childSnapshot.val());
-            });
-            
-            resultsArray.sort((a, b) => a.time - b.time);
+            let html = `
+                <table class="results-table">
+                    <thead>
+                        <tr>
+                            <th>Nimi</th>
+                            <th>Aeg</th>
+                            <th>WPM</th>
+                            <th>Hinnang</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
 
-            for (let i = 0; i < resultsArray.length; i++) {
-                const row = document.createElement("div");
-                row.textContent = `${i + 1}. ${resultsArray[i].name} - ${resultsArray[i].time} s`;
-                resultDiv.appendChild(row);
-            }
+            snapshot.forEach((child) => {
+                const data = child.val();
+                const wpm = (data.speed * 60).toFixed(0);
+                
+                let rankIcon = "🐢";
+                if(wpm > 35) rankIcon = "🚶";
+                if(wpm > 55) rankIcon = "🏃";
+                if(wpm > 80) rankIcon = "⚡";
+
+                html += `
+                    <tr>
+                        <td><strong>${data.name}</strong></td>
+                        <td>${data.time}s</td>
+                        <td>${wpm}</td>
+                        <td>${rankIcon}</td>
+                    </tr>`;
+            });
+
+            html += `</tbody></table>`;
+            container.innerHTML = html;
         });
     }
 
@@ -91,6 +135,31 @@ class Typer {
             this.resetGameState();
             this.startCountdown();
         });
+
+        document.getElementById("backToMenuBtn").addEventListener("click", () => {
+        this.resetGameState();
+        document.getElementById("gameMenu").style.display = "flex";
+        });
+    }
+
+    bindModal() {
+        const modal = document.getElementById("resultsModal");
+        const btn = document.getElementById("showResultsBtn");
+        const span = document.querySelector(".close");
+
+        btn.onclick = () => {
+            modal.classList.add("is-visible");
+        };
+
+        span.onclick = () => {
+            modal.classList.remove("is-visible");
+        };
+
+        window.onclick = (event) => {
+            if (event.target == modal) {
+                modal.classList.remove("is-visible");
+            }
+        };
     }
 
     async loadFromFile() {
@@ -148,8 +217,11 @@ class Typer {
     }
 
     startTyper() {
+        this.audioStart.play();
+        this.wordsTyped = 0;
         this.generateWords();
         this.upDateInfo();
+        this.startTime = performance.now();
         document.querySelector("#info").style.display = "flex";
         document.querySelector("#wordContainer").style.display = "flex";
 
@@ -163,26 +235,45 @@ class Typer {
     }
 
     shorteWord(keypressed) {
-        if (this.word[0] === keypressed && this.word.length > 1 && this.typeWords.length > this.wordsTyped) {
-            this.word = this.word.slice(1);
-            this.drawWord();
-        } else if (this.word[0] === keypressed && this.word.length == 1 && this.wordsTyped <= this.typeWords.length - 2) {
-            this.wordsTyped++;
-            this.upDateInfo();
-            this.selectWord();
-        } else if (this.word[0] === keypressed && this.word.length == 1 && this.typeWords.length - 1 == this.wordsTyped) {
-            this.upDateInfo();
-            this.wordsTyped = 0;
-            this.endGame();
+        if (this.word[0] === keypressed) {
+            this.audioType.currentTime = 0;
+            this.audioType.play();
+
+            const totalChars = this.typeWords.join("").length;
+            const typedChars = totalChars - this.word.length - (this.typeWords.slice(this.wordsTyped + 1).join("").length);
+            const progressPercent = (typedChars / totalChars) * 100;
+            document.getElementById("progressBar").style.width = progressPercent + "%";
+
+            const currentTime = (performance.now() - this.startTime) / 1000 / 60;
+            const currentWpm = Math.round((typedChars / 5) / currentTime) || 0;
+            document.getElementById("liveWpm").innerText = `WPM: ${currentWpm}`;
+
+            if (this.word.length > 1 && this.typeWords.length > this.wordsTyped) {
+                this.word = this.word.slice(1);
+                this.drawWord();
+            } else if (this.word.length == 1 && this.wordsTyped <= this.typeWords.length - 2) {
+                this.wordsTyped++;
+                this.upDateInfo();
+                this.selectWord();
+            } else if (this.word.length == 1 && this.typeWords.length - 1 == this.wordsTyped) {
+                this.upDateInfo();
+                this.wordsTyped = 0;
+                this.endGame();
+            }
         } else if (this.word[0] != keypressed) {
-            document.getElementById("word").style.color = "red";
+            const wordElement = document.getElementById("word");
+            wordElement.style.color = "#ef4444";
+            wordElement.classList.add("shake");
+            
             setTimeout(() => {
-                document.getElementById("word").style.color = "black";
-            }, 100);
+                wordElement.style.color = "#818cf8";
+                wordElement.classList.remove("shake");
+            }, 200);
         }
     }
 
     endGame() {
+        this.audioEnd.play();
         this.endTime = performance.now();
         this.score = ((this.endTime - this.startTime) / 1000).toFixed(2);
         
@@ -190,16 +281,22 @@ class Typer {
         window.removeEventListener("keypress", this.keyListener);
         
         document.getElementById("restartBtn").style.display = "block";
+        document.getElementById("backToMenuBtn").style.display = "block";
         
         this.saveResult();
     }
 
     saveResult() {
         if (this.score > 0) {
+            const speed = (this.wordsInGame / parseFloat(this.score)).toFixed(2);
             push(ref(db, 'scores'), {
                 name: this.name,
                 time: parseFloat(this.score),
+                words: this.typeWords.join(" "),
+                speed: parseFloat(speed),
                 timestamp: Date.now()
+            }).then(() => {
+                this.audioScore.play();
             }).catch(err => {
                 console.error("Viga andmete salvestamisel:", err);
             });
@@ -208,7 +305,7 @@ class Typer {
 
     generateWords() {
         for (let i = 0; i < this.wordsInGame; i++) {
-            const len = this.wordsInGame + i;
+            const len = this.startingWordLength + i;
             if(this.words[len]) {
                 const randomIndex = Math.floor(Math.random() * this.words[len].length);
                 this.typeWords[i] = this.words[len][randomIndex];

@@ -20,6 +20,7 @@
         <h2 id="welcomeMsg"></h2>
         <button id="startGameBtn">Alusta mängu</button>
         <button id="logoutBtn" class="secondary-btn">Vaheta kasutajat / Logi välja</button>
+        <button id="showResultsBtn">Näita TOP 20</button>
     </div>
 
     <div id="counter" class="container">
@@ -34,11 +35,14 @@
         <div id="word"></div>
         <div id="score"></div>
         <button id="restartBtn" style="display: none;">Mängi uuesti</button>
+        <button id="backToMenuBtn" style="display: none;">Tagasi menüüsse</button>
     </div>
 
-    <div id="resultsContainer" class="container">
-        <h2>TOP 20</h2>
-        <div id="results">
+    <div id="resultsModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>TOP 20</h2>
+            <div id="resultsContainer"></div>
         </div>
     </div>
     
